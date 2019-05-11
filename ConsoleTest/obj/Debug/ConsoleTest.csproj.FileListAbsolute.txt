@@ -1,0 +1,6 @@
+C:\Users\Jon\Documents\Visual Studio 2017\Projects\CallProfiler\ConsoleTest\bin\Debug\ConsoleTest.exe.config
+C:\Users\Jon\Documents\Visual Studio 2017\Projects\CallProfiler\ConsoleTest\bin\Debug\ConsoleTest.exe
+C:\Users\Jon\Documents\Visual Studio 2017\Projects\CallProfiler\ConsoleTest\bin\Debug\ConsoleTest.pdb
+C:\Users\Jon\Documents\Visual Studio 2017\Projects\CallProfiler\ConsoleTest\obj\Debug\ConsoleTest.exe
+C:\Users\Jon\Documents\Visual Studio 2017\Projects\CallProfiler\ConsoleTest\obj\Debug\ConsoleTest.pdb
+C:\Users\Jon\Documents\Visual Studio 2017\Projects\CallProfiler\ConsoleTest\obj\Debug\ConsoleTest.csprojResolveAssemblyReference.cache
