@@ -45,6 +45,9 @@
     <ClInclude Include="FunctionInfo.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ProfilerImpl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -65,5 +68,10 @@
     <ClCompile Include="guids.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="StubX64.asm">
+      <Filter>Source Files</Filter>
+    </MASM>
   </ItemGroup>
 </Project>

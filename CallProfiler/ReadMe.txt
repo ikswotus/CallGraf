@@ -2,6 +2,19 @@
     DYNAMIC LINK LIBRARY : CallProfiler Project Overview
 ========================================================================
 
+TODO:
+Dynamically turn on/off profiling (logging)
+Return S_FALSE for all executables except target(or list of targets)
+Map function calls to metadata and build call stacks?
+-> See if timing can be captured without full stack (don't want args)
+-> Thread safety
+-> Flush to disk (~30s)
+-> Compress (Condensor will do this)
+-> use local socket (file failover) to communicate with a Generator
+
+
+
+
 AppWizard has created this CallProfiler DLL for you.
 
 This file contains a summary of what you will find in each of the files that

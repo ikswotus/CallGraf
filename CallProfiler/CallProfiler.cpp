@@ -19,17 +19,83 @@ MIDL_DEFINE_GUID(IID, IID_ICorProfilerCallback3, 0x4FD2ED52, 0x7731, 0x4b8d, 0x9
 
 using namespace std;
 
+CallProfiler* g_profiler = NULL;
+
+// our real handler for FunctionLeave notification
+void CallProfiler::Leave(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_RANGE *argumentRange)
+{
+	// decrement the call stack size
+	if (m_callStackSize > 0)
+		m_callStackSize--;
+}
+
+// our real handler for the FunctionTailcall notification
+void CallProfiler::Tailcall(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo)
+{
+	// decrement the call stack size
+	if (m_callStackSize > 0)
+		m_callStackSize--;
+}
+
+
+
+void CallProfiler::Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *argumentInfo)
+{
+	// see if this function is in the map.  It should be since we are using the funciton mapper
+	CFunctionInfo* functionInfo = NULL;
+	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionID);
+	if (iter != m_functionMap.end())
+	{
+		// get it from the map and update it
+		functionInfo = (iter->second);
+		// increment the call count
+		functionInfo->IncrementCallCount();
+		// create the padding based on the call stack size
+		int padCharCount = m_callStackSize * 2;
+		if (padCharCount > 0)
+		{
+			char* padding = new char[(padCharCount)+1];
+			memset(padding, 0, padCharCount + 1);
+			memset(padding, ' ', padCharCount);
+			// log the function call
+			printf("%s%s, id=%d, call count = %d\r\n", padding, functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
+			delete padding;
+		}
+		else
+		{
+			// log the function call
+			printf("%s, id=%d, call count = %d\r\n", functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
+		}
+	}
+	else
+	{
+		// log an error (this shouldn't happen because we're caching the functions
+		// in the function mapping callback
+		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
+	}
+	// increment the call stack size (we must do this even if we don't find the 
+	// function in the map
+	m_callStackSize++;
+}
 
 CallProfiler::CallProfiler() //: corProfilerInfo(NULL)
 {
-	printf("cpt");
+	printf("CallProfiler::ctor()\n");
 	m_info = NULL;
+	m_refCount = 0;
+	m_callStackSize = 0;
+	//m_functionMap();
 }
 
 CallProfiler::~CallProfiler()
 {
+	printf("CallProfiler::dtor\n");
 	if (m_info != NULL)
 		m_info->Release();
+	if (g_profiler != NULL)
+	{
+
+	}
 	/*if (this->corProfilerInfo != nullptr)
 	{
 		this->corProfilerInfo->Release();
@@ -44,7 +110,7 @@ HRESULT STDMETHODCALLTYPE CallProfiler::InitializeForAttach(
 	/* [in] */ UINT cbClientData)
 {
 	HRESULT             hr = S_OK;
-	printf("cp::initializeforattach");
+	printf("cp::initializeforattach\n");
 	return hr;
 }
 
@@ -52,43 +118,43 @@ HRESULT CallProfiler::QueryInterface(
 	REFIID  riid,
 	void ** ppInterface)
 {
-	printf("cp::QueryInterface");
+	printf("CallProfiler::QueryInterface\n");
 	if (riid == IID_IUnknown)
 	{
-		printf("--IID_IUNKNOWN");
+		printf("CallProfiler::IID_IUNKNOWN\n");
 		*ppInterface = static_cast<ICorProfilerCallback*>(this);
 
 	}
 	else if (riid == IID_ICorProfilerCallback)
 	{
-		printf("--IID_ICorProfilerCallback");
+		printf("--IID_ICorProfilerCallback\n");
 		*ppInterface = static_cast<ICorProfilerCallback*>(this);
 	}
 	else if (riid == IID_ICorProfilerCallback2)
 	{
-		printf("--IID_ICorProfilerCallback2");
+		printf("--IID_ICorProfilerCallback2\n");
 		*ppInterface = static_cast<ICorProfilerCallback2*>(this);
 	}
 	else if (riid == IID_ICorProfilerCallback3)
 	{
-		printf("--IID_ICorProfilerCallback3");
+		printf("--IID_ICorProfilerCallback3\n");
 		*ppInterface = static_cast<ICorProfilerCallback3*>(this);
 	}
 	// TODO FIX NOW add support or ICorProfilerCallback4 (for large objects)
 	else
 	{
-		printf("--IID_NOTIMPL");
+		printf("--IID_NOTIMPL\n");
 		*ppInterface = NULL;
 		return E_NOTIMPL;
 	}
 	reinterpret_cast<IUnknown *>(*ppInterface)->AddRef();
-	printf("--returning s_OK");
+	printf("--returning s_OK\n");
 	return S_OK;
 }
 
 HRESULT CallProfiler::Shutdown()
 {
-//	printf("Shutdown");
+	printf("Shutdown\n");
 	if (m_info != NULL)
 		m_info->Release();
 	m_info = NULL;
@@ -205,6 +271,58 @@ STDMETHODIMP CallProfiler::GarbageCollectionStarted(int cGenerations, BOOL gener
 	return S_OK;
 }
 
+
+#if defined(_M_IX86)
+// see http://msdn.microsoft.com/en-us/library/4ks26t93.aspx  for inline assembly.   Not supported on X64.   
+
+void __declspec(naked) __stdcall EnterMethodNaked(FunctionID funcID)
+{
+	__asm
+	{
+		push eax
+		push ecx
+		push edx
+		push[esp + 16]		// Push the function ID
+		call EnterMethod
+		pop edx
+		pop ecx
+		pop eax
+		ret 4
+	}
+} // EnterNaked
+
+  // Currently we don't care about the leave method (can we avoid making the call?
+void __declspec(naked) __stdcall LeaveMethodNaked(FunctionID funcID)
+{
+	__asm
+	{
+		ret 4
+	}
+}
+
+void __declspec(naked) __stdcall TailcallMethodNaked(FunctionID funcID)
+{
+	__asm
+	{
+		push eax
+		push ecx
+		push edx
+		push[esp + 16]
+		call TailcallMethod
+		pop edx
+		pop ecx
+		pop eax
+		ret 4
+	}
+}
+
+#else
+EXTERN_C void __stdcall EnterMethodNaked(FunctionID functionID);
+EXTERN_C void __stdcall LeaveMethodNaked(FunctionID functionID);
+EXTERN_C void __stdcall TailcallMethodNaked(FunctionID functionID);
+#endif 
+
+
 //==============================================================================
 STDMETHODIMP CallProfiler::GarbageCollectionFinished(void)
 {
@@ -231,14 +349,138 @@ STDMETHODIMP CallProfiler::ObjectAllocated(ObjectID objectId, ClassID classId)
 	return S_OK;
 }
 
+EXTERN_C void __stdcall EnterMethod(FunctionID functionID)
+{
+	// TODO: See if the map already contains functionID, if not - lookup and add
+	// TODO: Record (stack) 
+	// TODO: Timing info (in,out), need utc long of timer start
+	// TOOD: How to pair up in, out? Look at callstack mapping (CLRProfiler)
+	// TODO: Arguments (And hooks for checking names)
+
+	if (g_profiler != NULL)
+	{
+
+		IMetaDataImport* pIMetaDataImport = 0;
+		HRESULT hr = S_OK;
+		mdToken funcToken = 0;
+		WCHAR szFunction[MAX_CLASS_NAME];
+		WCHAR szClass[MAX_CLASS_NAME];
+
+		// get the token for the function which we will use to get its name
+		hr = g_profiler->m_info->GetTokenAndMetaDataFromFunction(functionID, IID_IMetaDataImport, (LPUNKNOWN *)&pIMetaDataImport, &funcToken);
+		if (SUCCEEDED(hr))
+		{
+			mdTypeDef classTypeDef;
+			ULONG cchFunction;
+			ULONG cchClass;
+
+			// retrieve the function properties based on the token
+			hr = pIMetaDataImport->GetMethodProps(funcToken, &classTypeDef, szFunction, MAX_CLASS_NAME, &cchFunction, 0, 0, 0, 0, 0);
+			if (SUCCEEDED(hr))
+			{
+				// get the function name
+				hr = pIMetaDataImport->GetTypeDefProps(classTypeDef, szClass, MAX_CLASS_NAME, &cchClass, 0, 0);
+				if (SUCCEEDED(hr))
+				{
+					// create the fully qualified name
+					printf("EnterMethod: %S.%S\n", szClass, szFunction);
+				}
+			}
+			// release our reference to the metadata
+			pIMetaDataImport->Release();
+		}
+	}
+}
+
+EXTERN_C void __stdcall TailcallMethod(FunctionID functionID)
+{
+	printf("TailcallMethod\n");
+//	EnterMethod(functionID);
+}
+
 HRESULT CallProfiler::Initialize(IUnknown *pICorProfilerInfoUnk)
 {
-	printf("cp::initialize");
+	//printf("cp::initialize");
 
-	return S_OK;
+	//return S_OK;
 
-	//printf("Initialized???");
+	printf("CallProfiler::Initialize\n");
 
+	HRESULT             hr = S_OK;
+
+	// Get current process name -> See if its one we want to profile
+
+	TCHAR szFileName[MAX_PATH + 1];
+
+	DWORD res = GetModuleFileName(NULL, szFileName, MAX_PATH + 1);
+
+	std::wstring name(szFileName);
+
+	printf("ProcessName: %d %S \n" , res, szFileName);
+
+	printf("\n");
+
+	bool wantToProfile = true;
+
+	if(!wantToProfile)
+		return S_FALSE;
+	
+
+	CALL_N_LOGONBADHR(pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo3), (void **)&m_info));
+
+	// Even if we did not ask for them, turn on the profiler flags that can ONLY be done at startup. 
+	DWORD oldFlags = 0;
+	m_info->SetEventMask(COR_PRF_MONITOR_ENTERLEAVE);
+	m_info->SetEnterLeaveFunctionHooks(EnterMethodNaked, 0, TailcallMethodNaked);
+
+	g_profiler = this;
+
+	//CALL_N_LOGONBADHR(m_info->GetEventMask(&oldFlags));
+	//CALL_N_LOGONBADHR(m_info->SetEventMask(oldFlags | COR_PRF_ENABLE_OBJECT_ALLOCATED));
+
+	// See if we asked for call sampling or not.  
+	//DWORD keywords = 0;
+	//DWORD keywordsSize = sizeof(keywords);
+	//int hrRegGetValue = RegGetValue(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\.NETFramework", L"PerfView_Keywords", RRF_RT_DWORD, NULL, &keywords, &keywordsSize);
+	//if (hrRegGetValue == ERROR_SUCCESS)
+	//{
+	//	if ((keywords & DisableInliningKeyword) != 0)
+	//	{
+	//		CALL_N_LOGONBADHR(m_info->GetEventMask(&oldFlags));
+	//		CALL_N_LOGONBADHR(m_info->SetEventMask(oldFlags | COR_PRF_DISABLE_INLINING));
+	//	}
+
+	//	if ((keywords & (CallKeyword | CallSampledKeyword)) != 0)
+	//	{
+	//		// assert(s_tracer == NULL);	// Don't need any information passed around so I don't need this.  
+	//		// s_tracer = this;
+
+	//		// Turn on the Call entry and leave hooks.  
+	//		CALL_N_LOGONBADHR(m_info->SetEnterLeaveFunctionHooks3(EnterMethodNaked, 0, TailcallMethodNaked));
+	//		CALL_N_LOGONBADHR(m_info->GetEventMask(&oldFlags));
+	//		CALL_N_LOGONBADHR(m_info->SetEventMask(oldFlags | COR_PRF_MONITOR_ENTERLEAVE));
+
+
+	//		if ((keywords & CallSampledKeyword) != 0)
+	//			CallSamplingRate = 997;		// TODO make it configurable.    We choose 997 because it is prime and thus likely to be uncorrelated with things.  
+	//	}
+	//}
+
+	return S_FALSE;
+	
+	printf("Initialize() returns %x\n" + hr);
+	return hr;
+
+exit:
+	printf("Initialize() returns %x\n" + hr);
+	return hr;
+	// In my Initialize() method I call InitializeForAttach with cbClientData == -1.   This is convenient 
+	// since most of the logic is the same.  
+	//m_profilerLoadedAtStartup = ((int)cbClientData < 0);
+
+	// Initialize the ETW Provider.  
+	//LOG_TRACE(L"Registering the ETW provider\n");
+	//CALL_N_LOGONBADHR(EventRegisterETWClrProfiler(ProfilerControlCallback, this));
 
 	////ofstream fout("E:\\afile.txt");
 	////fout << "Init??????" << endl;
@@ -271,4 +513,7 @@ HRESULT CallProfiler::Initialize(IUnknown *pICorProfilerInfoUnk)
 	//}
 
 	//return S_OK;
+
+
+
 }

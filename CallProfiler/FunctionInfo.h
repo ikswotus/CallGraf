@@ -2,7 +2,12 @@
 
 //#include "cor.h"
 //#include "corprof.h"
-#include "CallProfiler.h"
+//#include "CallProfiler.h"
+
+#ifndef __FUNCTION_INFO_H__
+#define __FUNCTION_INFO_H__
+
+#include "ProfilerImpl.h"
 
 class CFunctionInfo
 {
@@ -21,3 +26,5 @@ private:
 	long m_callCount;
 
 };
+
+#endif

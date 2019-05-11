@@ -4,34 +4,22 @@
 #ifndef __CALL_PROFILER_H__
 #define __CALL_PROFILER_H__
 
-//#include "mscoree.h"
-//#include "avlnode.h"
-//#include "basehlp.h"
-//#include "container.hpp"
-////#include "stdafx.h"
-//
-//#include <Windows.h>
+#include "ProfilerImpl.h"
+#include "FunctionInfo.h"
 
-#include <cor.h>
-#include <corprof.h>
-#include <corhlpr.h>
-
-//[Guid("D1EEF7F2-7F41-4C97-98B1-8E483D0CE3E6")]
-//extern const GUID __declspec(selectany) CLSID_CALLPROFILER =
-//{ 0xd1eef7f2, 0x7f41, 0x4c97,{ 0x98, 0xb1, 0x8e, 0x48, 0x3d, 0x0c, 0xe3, 0xe6 } };
+#include <stdio.h>
+#include <map>
 
 #define PROFILER_GUID "{D1EEF7F2-7F41-4C97-98B1-8E483D0CE3E6}"
 #define PROFILER_GUID_WCHAR L"{D1EEF7F2-7F41-4C97-98B1-8E483D0CE3E6}"
 
 #define COCLASS_DESCRIPTION "CallProfiler Test"
 
-//#define COM_METHOD( TYPE ) TYPE STDMETHODCALLTYPE
 
 class CallProfiler
 	: public ICorProfilerCallback3
 {
 private:
-	//ICorProfilerInfo3* corProfilerInfo;
 
 public:
 	CallProfiler();
@@ -50,9 +38,14 @@ public:
 		//LOG_TRACE(L"ProfilerDetachSucceeded\n");
 		return Shutdown();
 	}
-
-	STDMETHODIMP_(ULONG) AddRef() { return InterlockedIncrement(&m_refCount); }
-	STDMETHODIMP_(ULONG) Release() { auto ret = InterlockedDecrement(&m_refCount); if (ret <= 0) delete(this); return ret; }
+	STDMETHODIMP_(ULONG) AddRef() {
+		printf("AddRef %ld\n", m_refCount);
+		return InterlockedIncrement(&m_refCount);
+	}
+	STDMETHODIMP_(ULONG) Release() {
+		printf("Release - %ld\n", m_refCount);
+		auto ret = InterlockedDecrement(&m_refCount); if (ret <= 0) delete(this); return ret;
+	}
 	STDMETHODIMP QueryInterface(REFIID riid, void **ppInterface);
 
 	/* OTHER STUFF */
@@ -137,9 +130,21 @@ public:
 	STDMETHODIMP RootReferences2(ULONG cRootRefs, ObjectID rootRefIds[], COR_PRF_GC_ROOT_KIND rootKinds[], COR_PRF_GC_ROOT_FLAGS rootFlags[], UINT_PTR rootIds[]);
 	STDMETHODIMP HandleCreated(GCHandleID handleId, ObjectID initialObjectId);
 	STDMETHODIMP HandleDestroyed(GCHandleID handleId);
-private :
+
+	// Function Mapping
+	void Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *argumentInfo);
+	void Leave(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_RANGE *argumentRange);
+	void Tailcall(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo);
+	
 	struct ICorProfilerInfo3* m_info;
+
+private :
+	
 	LONG                      m_refCount;
+	int m_callStackSize;
+
+	// Perform mapping of function IDs to names
+	std::map<FunctionID, CFunctionInfo*> m_functionMap;
 };
 
 //extern CallProfiler *g_pCallbackObject;

@@ -7,13 +7,12 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 					 )
 {
 	switch (ul_reason_for_call)
-	{
-	case DLL_PROCESS_ATTACH:
-	case DLL_THREAD_ATTACH:
-	case DLL_THREAD_DETACH:
-	case DLL_PROCESS_DETACH:
-		break;
-	}
-	return TRUE;
+			{
+			case DLL_PROCESS_ATTACH:
+				DisableThreadLibraryCalls(hModule);     // Don't need the thread callbacks.  
+				break;
+			}
+			return TRUE;
+//	return TRUE;
 }
 
