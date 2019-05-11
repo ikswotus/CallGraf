@@ -6,6 +6,7 @@
 
 #include <fstream>
 
+#include <atlconv.h>
 
 #define MIDL_DEFINE_GUID(type,name,l,w1,w2,b1,b2,b3,b4,b5,b6,b7,b8) \
 	const type name = {l,w1,w2,{b1,b2,b3,b4,b5,b6,b7,b8}}
@@ -20,63 +21,63 @@ MIDL_DEFINE_GUID(IID, IID_ICorProfilerCallback3, 0x4FD2ED52, 0x7731, 0x4b8d, 0x9
 using namespace std;
 
 CallProfiler* g_profiler = NULL;
-
-// our real handler for FunctionLeave notification
-void CallProfiler::Leave(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_RANGE *argumentRange)
-{
-	// decrement the call stack size
-	if (m_callStackSize > 0)
-		m_callStackSize--;
-}
-
-// our real handler for the FunctionTailcall notification
-void CallProfiler::Tailcall(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo)
-{
-	// decrement the call stack size
-	if (m_callStackSize > 0)
-		m_callStackSize--;
-}
-
-
-
-void CallProfiler::Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *argumentInfo)
-{
-	// see if this function is in the map.  It should be since we are using the funciton mapper
-	CFunctionInfo* functionInfo = NULL;
-	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionID);
-	if (iter != m_functionMap.end())
-	{
-		// get it from the map and update it
-		functionInfo = (iter->second);
-		// increment the call count
-		functionInfo->IncrementCallCount();
-		// create the padding based on the call stack size
-		int padCharCount = m_callStackSize * 2;
-		if (padCharCount > 0)
-		{
-			char* padding = new char[(padCharCount)+1];
-			memset(padding, 0, padCharCount + 1);
-			memset(padding, ' ', padCharCount);
-			// log the function call
-			printf("%s%s, id=%d, call count = %d\r\n", padding, functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
-			delete padding;
-		}
-		else
-		{
-			// log the function call
-			printf("%s, id=%d, call count = %d\r\n", functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
-		}
-	}
-	else
-	{
-		// log an error (this shouldn't happen because we're caching the functions
-		// in the function mapping callback
-		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
-	}
-	// increment the call stack size (we must do this even if we don't find the 
-	// function in the map
-	m_callStackSize++;
-}
+//
+//// our real handler for FunctionLeave notification
+//void CallProfiler::Leave(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_RANGE *argumentRange)
+//{
+//	// decrement the call stack size
+//	if (m_callStackSize > 0)
+//		m_callStackSize--;
+//}
+//
+//// our real handler for the FunctionTailcall notification
+//void CallProfiler::Tailcall(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo)
+//{
+//	// decrement the call stack size
+//	if (m_callStackSize > 0)
+//		m_callStackSize--;
+//}
+//
+//
+//
+//void CallProfiler::Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *argumentInfo)
+//{
+//	// see if this function is in the map.  It should be since we are using the funciton mapper
+//	CFunctionInfo* functionInfo = NULL;
+//	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionID);
+//	if (iter != m_functionMap.end())
+//	{
+//		// get it from the map and update it
+//		functionInfo = (iter->second);
+//		// increment the call count
+//		functionInfo->IncrementCallCount();
+//		// create the padding based on the call stack size
+//		int padCharCount = m_callStackSize * 2;
+//		if (padCharCount > 0)
+//		{
+//			char* padding = new char[(padCharCount)+1];
+//			memset(padding, 0, padCharCount + 1);
+//			memset(padding, ' ', padCharCount);
+//			// log the function call
+//			printf("%I64u %s%s, id=%d, call count = %d\r\n", GetTickCount64(), padding, functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
+//			delete padding;
+//		}
+//		else
+//		{
+//			// log the function call
+//			printf("%I64u %s, id=%d, call count = %d\r\n", GetTickCount64(), functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
+//		}
+//	}
+//	else
+//	{
+//		//// log an error (this shouldn't happen because we're caching the functions
+//		//// in the function mapping callback
+//		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
+//	}
+//	// increment the call stack size (we must do this even if we don't find the 
+//	// function in the map
+//	m_callStackSize++;
+//}
 
 CallProfiler::CallProfiler() //: corProfilerInfo(NULL)
 {
@@ -187,87 +188,30 @@ STDMETHODIMP CallProfiler::SurvivingReferences(ULONG cSurvivingObjectIDRanges, O
 
 STDMETHODIMP CallProfiler::RootReferences2(ULONG cRootRefs, ObjectID rootRefIds[], COR_PRF_GC_ROOT_KIND rootKinds[], COR_PRF_GC_ROOT_FLAGS rootFlags[], UINT_PTR rootIds[])
 {
-	// If we did not ask for the GCHeap events, do nothing.  
-	/*if ((m_currentKeywords & GCHeapKeyword) == 0)
-		return S_OK;
-
-	LOG_TRACE(L"RootReferences2\n");
-	const int maxCount = MaxEventPayload / (2 * sizeof(int) + 2 * sizeof(void*));
-	for (ULONG idx = 0; idx < cRootRefs; idx += maxCount)
-	{
-		EventWriteRootReferencesEvent(min(cRootRefs - idx, maxCount),
-			(const void**)&rootRefIds[idx], (unsigned int*)&rootKinds[idx], (unsigned int*)&rootFlags[idx], (const void**)&rootIds[idx]);
-	}*/
 	return S_OK;
 }
 
 
 STDMETHODIMP CallProfiler::ObjectReferences(ObjectID objectId, ClassID classId, ULONG cObjectRefs, ObjectID objectRefIds[])
 {
-	//if ((m_currentKeywords & GCHeapKeyword) == 0)
-	//	return S_OK;
-	//// LOG_TRACE(L"ObjectReferences\n");
-
-	//// We do this for the side effect of logging the class  
-	//ClassInfo* classInfo = GetClassInfo(classId);
-	///** TODO FIX NOW
-	//if (classInfo == NULL)
-	//return E_FAIL;
-	//**/
-	//ULONG size = 0;
-	//m_info->GetObjectSize(objectId, &size);
-
-	//EventWriteObjectReferencesEvent(objectId, classId, size, cObjectRefs, (const void**)objectRefIds);
 	return S_OK;
 }
 
 //==============================================================================
 STDMETHODIMP CallProfiler::HandleCreated(GCHandleID handleId, ObjectID initialObjectId)
 {
-//	if ((m_currentKeywords & (GCHeapKeyword | GCAllocKeyword | GCAllocSampledKeyword)) == 0)
-//		return S_OK;
-//
-//	LOG_TRACE(L"HandleCreated\n");
-//#ifndef PIN_INVESTIGATION
-//	// TODO FIX NOW HACK for exchange data collection 
-//	EventWriteHandleCreatedEvent(handleId, initialObjectId);
-//#endif
 	return S_OK;
 }
 
 //==============================================================================
 STDMETHODIMP CallProfiler::HandleDestroyed(GCHandleID handleId)
 {
-//	if ((m_currentKeywords & (GCHeapKeyword | GCAllocKeyword | GCAllocSampledKeyword)) == 0)
-//		return S_OK;
-//
-//	LOG_TRACE(L"HandleDestroyed\n");
-//#ifndef PIN_INVESTIGATION
-//	// TODO FIX NOW HACK for exchange data collection 
-//	EventWriteHandleDestroyedEvent(handleId);
-//#endif 
+
 	return S_OK;
 }
 
 STDMETHODIMP CallProfiler::GarbageCollectionStarted(int cGenerations, BOOL generationCollected[], COR_PRF_GC_REASON reason)
 {
-//	LOG_TRACE(L"GC Started\n");
-//	int maxGenCollected = 0;
-//	for (int i = 0; i < cGenerations; i++)
-//		if (generationCollected[i])
-//			maxGenCollected = i;
-//
-//	m_gcCount++;
-//
-//#if 0	// TODO FIX NOW implement
-//	ULONG boundsCount = 0;
-//	COR_PRF_GC_GENERATION_RANGE* bounds = new COR_PRF_GC_GENERATION_RANGE[4];
-//	m_info->GetGenerationBounds(4, &boundsCount, bounds);
-//	delete bounds;
-//#endif
-//
-//	EventWriteGCStartEvent(m_gcCount, min(maxGenCollected, 2), reason == COR_PRF_GC_INDUCED);
-//
 	return S_OK;
 }
 
@@ -326,21 +270,14 @@ EXTERN_C void __stdcall TailcallMethodNaked(FunctionID functionID);
 //==============================================================================
 STDMETHODIMP CallProfiler::GarbageCollectionFinished(void)
 {
-	/*LOG_TRACE(L"GC End\r\n");
-	EventWriteGCStopEvent(m_gcCount);*/
+	
 	return S_OK;
 }
 
 //==============================================================================
 STDMETHODIMP CallProfiler::FinalizeableObjectQueued(DWORD finalizerFlags, ObjectID objectID)
 {
-//	LOG_TRACE(L"FinalizeableObjectQueued\n");
-//#ifndef PIN_INVESTIGATION
-//	// TODO FIX NOW HACK for exchange data collection 
-//	ClassID classID = 0;
-//	m_info->GetClassFromObject(objectID, &classID);
-//	EventWriteFinalizeableObjectQueuedEvent(objectID, classID);
-//#endif
+
 	return S_OK;
 }
 
@@ -349,16 +286,125 @@ STDMETHODIMP CallProfiler::ObjectAllocated(ObjectID objectId, ClassID classId)
 	return S_OK;
 }
 
-EXTERN_C void __stdcall EnterMethod(FunctionID functionID)
+void CallProfiler::Leave(FunctionID functionID)
 {
+	// TODO: Handle leaving
+}
+
+void CallProfiler::Tailcall(FunctionID functionID)
+{
+	// TODO: Tail calls
+}
+
+void CallProfiler::Enter(FunctionID functionID)
+{
+	CFunctionInfo* functionInfo = NULL;
+	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionID);
+	if (iter != m_functionMap.end())
+	{
+		// get it from the map and update it
+		functionInfo = (iter->second);
+		printf("EnterMethod: %I64u %s\n", GetTickCount64(), functionInfo->GetName());
+		// increment the call count
+		//functionInfo->IncrementCallCount();
+		// create the padding based on the call stack size
+		//int padCharCount = m_callStackSize * 2;
+		//if (padCharCount > 0)
+		//{
+		//	char* padding = new char[(padCharCount)+1];
+		//	memset(padding, 0, padCharCount + 1);
+		//	memset(padding, ' ', padCharCount);
+		//	// log the function call
+		//	printf("%I64u %s%s, id=%d, call count = %d\r\n", GetTickCount64(), padding, functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
+		//	delete padding;
+		//}
+		//else
+		//{
+		//	// log the function call
+		//	printf("%I64u %s, id=%d, call count = %d\r\n", GetTickCount64(), functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
+		//}
+	}
+	else
+	{
+		//// log an error (this shouldn't happen because we're caching the functions
+		//// in the function mapping callback
+		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
+	}
+	// increment the call stack size (we must do this even if we don't find the 
+	// function in the map
+	//m_callStackSize++;
+
 	// TODO: See if the map already contains functionID, if not - lookup and add
 	// TODO: Record (stack) 
 	// TODO: Timing info (in,out), need utc long of timer start
 	// TOOD: How to pair up in, out? Look at callstack mapping (CLRProfiler)
 	// TODO: Arguments (And hooks for checking names)
 
+	//if (g_profiler != NULL)
+	//{
+
+	//	IMetaDataImport* pIMetaDataImport = 0;
+	//	HRESULT hr = S_OK;
+	//	mdToken funcToken = 0;
+	//	WCHAR szFunction[MAX_CLASS_NAME];
+	//	WCHAR szClass[MAX_CLASS_NAME];
+
+	//	// get the token for the function which we will use to get its name
+	//	hr = g_profiler->m_info->GetTokenAndMetaDataFromFunction(functionID, IID_IMetaDataImport, (LPUNKNOWN *)&pIMetaDataImport, &funcToken);
+	//	if (SUCCEEDED(hr))
+	//	{
+	//		mdTypeDef classTypeDef;
+	//		ULONG cchFunction;
+	//		ULONG cchClass;
+
+	//		// retrieve the function properties based on the token
+	//		hr = pIMetaDataImport->GetMethodProps(funcToken, &classTypeDef, szFunction, MAX_CLASS_NAME, &cchFunction, 0, 0, 0, 0, 0);
+	//		if (SUCCEEDED(hr))
+	//		{
+	//			// get the function name
+	//			hr = pIMetaDataImport->GetTypeDefProps(classTypeDef, szClass, MAX_CLASS_NAME, &cchClass, 0, 0);
+	//			if (SUCCEEDED(hr))
+	//			{
+	//				// create the fully qualified name
+	//				printf("EnterMethod: %I64u %S.%S\n", GetTickCount64(), szClass, szFunction);
+	//			}
+	//		}
+	//		// release our reference to the metadata
+	//		pIMetaDataImport->Release();
+	//	}
+	//}
+}
+
+EXTERN_C void __stdcall EnterMethod(FunctionID functionID)
+{
+	if (g_profiler != NULL)
+		g_profiler->Enter(functionID);
+	
+}
+
+EXTERN_C void __stdcall TailcallMethod(FunctionID functionID)
+{
+	printf("TailcallMethod\n");
+//	EnterMethod(functionID);
+}
+
+UINT_PTR CallProfiler::FunctionMapper(FunctionID functionID, BOOL *pbHookFunction)
+{
 	if (g_profiler != NULL)
 	{
+		g_profiler->AddFunction(functionID);
+	}
+	return (UINT_PTR)functionID;
+}
+
+void CallProfiler::AddFunction(FunctionID functionid)
+{
+	CFunctionInfo* functionInfo = NULL;
+	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionid);
+
+	if (iter == m_functionMap.end())
+	{
+		printf("Looking up functionid: %d", functionid);
 
 		IMetaDataImport* pIMetaDataImport = 0;
 		HRESULT hr = S_OK;
@@ -367,7 +413,7 @@ EXTERN_C void __stdcall EnterMethod(FunctionID functionID)
 		WCHAR szClass[MAX_CLASS_NAME];
 
 		// get the token for the function which we will use to get its name
-		hr = g_profiler->m_info->GetTokenAndMetaDataFromFunction(functionID, IID_IMetaDataImport, (LPUNKNOWN *)&pIMetaDataImport, &funcToken);
+		hr = g_profiler->m_info->GetTokenAndMetaDataFromFunction(functionid, IID_IMetaDataImport, (LPUNKNOWN *)&pIMetaDataImport, &funcToken);
 		if (SUCCEEDED(hr))
 		{
 			mdTypeDef classTypeDef;
@@ -383,19 +429,19 @@ EXTERN_C void __stdcall EnterMethod(FunctionID functionID)
 				if (SUCCEEDED(hr))
 				{
 					// create the fully qualified name
-					printf("EnterMethod: %S.%S\n", szClass, szFunction);
+						//printf("EnterMethod: %I64u %S.%S\n", GetTickCount64(), szClass, szFunction);
+						WCHAR szMethodName[1024];
+					_snwprintf_s(szMethodName, 1024, 1024, L"%s.%s", szClass, szFunction);
+					USES_CONVERSION;
+					CFunctionInfo* funcinfo = new CFunctionInfo(functionid, W2A(szMethodName));
+					m_functionMap.insert(std::pair<FunctionID, CFunctionInfo*>(functionid, funcinfo));
+					
 				}
 			}
 			// release our reference to the metadata
 			pIMetaDataImport->Release();
 		}
 	}
-}
-
-EXTERN_C void __stdcall TailcallMethod(FunctionID functionID)
-{
-	printf("TailcallMethod\n");
-//	EnterMethod(functionID);
 }
 
 HRESULT CallProfiler::Initialize(IUnknown *pICorProfilerInfoUnk)
@@ -431,7 +477,9 @@ HRESULT CallProfiler::Initialize(IUnknown *pICorProfilerInfoUnk)
 	// Even if we did not ask for them, turn on the profiler flags that can ONLY be done at startup. 
 	DWORD oldFlags = 0;
 	m_info->SetEventMask(COR_PRF_MONITOR_ENTERLEAVE);
-	m_info->SetEnterLeaveFunctionHooks(EnterMethodNaked, 0, TailcallMethodNaked);
+	m_info->SetEnterLeaveFunctionHooks(EnterMethodNaked, LeaveMethodNaked, TailcallMethodNaked);
+
+	m_info->SetFunctionIDMapper((FunctionIDMapper*)&FunctionMapper);
 
 	g_profiler = this;
 

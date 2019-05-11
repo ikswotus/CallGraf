@@ -25,7 +25,7 @@ namespace ConsoleTest
                 
 
                 processStartInfo.EnvironmentVariables["COR_PROFILER"] = "{D1EEF7F2-7F41-4C97-98B1-8E483D0CE3E6}";
-                processStartInfo.EnvironmentVariables["COR_PROFILER_PATH"] = @"G:\CodeLaptop\CallProfiler\x64\Debug\CallProfiler.dll";
+                processStartInfo.EnvironmentVariables["COR_PROFILER_PATH"] = @"E:\Code\CallGraf\CallGraf\x64\Debug\CallProfiler.dll";
                 
                 processStartInfo.UseShellExecute = false;
 

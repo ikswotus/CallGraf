@@ -38,6 +38,10 @@ public:
 		//LOG_TRACE(L"ProfilerDetachSucceeded\n");
 		return Shutdown();
 	}
+
+	static UINT_PTR _stdcall FunctionMapper(FunctionID functionId, BOOL *pbHookFunction);
+
+
 	STDMETHODIMP_(ULONG) AddRef() {
 		printf("AddRef %ld\n", m_refCount);
 		return InterlockedIncrement(&m_refCount);
@@ -132,10 +136,13 @@ public:
 	STDMETHODIMP HandleDestroyed(GCHandleID handleId);
 
 	// Function Mapping
-	void Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *argumentInfo);
-	void Leave(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_RANGE *argumentRange);
-	void Tailcall(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo);
+	void Enter(FunctionID functionID);
+	void Leave(FunctionID functionID);
+	void Tailcall(FunctionID functionID);
 	
+	// Map function id => name
+	void AddFunction(FunctionID functionID);
+
 	struct ICorProfilerInfo3* m_info;
 
 private :
