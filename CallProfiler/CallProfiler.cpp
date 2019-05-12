@@ -16,7 +16,44 @@ MIDL_DEFINE_GUID(IID, IID_ICorProfilerCallback2, 0x8A8CC829, 0xCCF2, 0x49fe, 0xB
 MIDL_DEFINE_GUID(IID, IID_ICorProfilerCallback3, 0x4FD2ED52, 0x7731, 0x4b8d, 0x94, 0x69, 0x03, 0xD2, 0xCC, 0x30, 0x86, 0xC5);
 
 
-//CallProfiler *g_pCallbackObject;        // global reference to callback object
+
+// these are linked in StubX64.asm
+EXTERN_C void EnterNaked2(FunctionID funcId,
+	UINT_PTR clientData,
+	COR_PRF_FRAME_INFO func,
+	COR_PRF_FUNCTION_ARGUMENT_INFO *argumentInfo);
+EXTERN_C void LeaveNaked2(FunctionID funcId,
+	UINT_PTR clientData,
+	COR_PRF_FRAME_INFO func,
+	COR_PRF_FUNCTION_ARGUMENT_RANGE *retvalRange);
+EXTERN_C void TailcallNaked2(FunctionID funcId,
+	UINT_PTR clientData,
+	COR_PRF_FRAME_INFO func);
+
+EXTERN_C void __stdcall EnterStub(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *retvalRange)
+{
+	CallProfiler::Enter(functionID, clientData, frameInfo, retvalRange);
+
+} // EnterStub
+
+EXTERN_C void __stdcall LeaveStub(FunctionID functionID)
+{
+	CallProfiler::Leave(functionID);
+
+} // LeaveStub
+
+
+EXTERN_C void __stdcall TailcallStub(FunctionID functionID)
+{
+	CallProfiler::Tailcall(functionID);
+
+} // TailcallStub
+
+EXTERN_C void EnterNaked3(FunctionIDOrClientID functionIDOrClientID);
+EXTERN_C void LeaveNaked3(FunctionIDOrClientID functionIDOrClientID);
+EXTERN_C void TailcallNaked3(FunctionIDOrClientID functionIDOrClientID);
+
+
 
 using namespace std;
 
@@ -164,25 +201,11 @@ HRESULT CallProfiler::Shutdown()
 
 STDMETHODIMP CallProfiler::MovedReferences(ULONG cMovedObjectIDRanges, ObjectID oldObjectIDRangeStart[], ObjectID newObjectIDRangeStart[], ULONG cObjectIDRangeLength[])
 {
-	/*LOG_TRACE(L"Moved Ref\n");
-	const int maxCount = MaxEventPayload / (1 * sizeof(int) + 2 * sizeof(void*));
-	for (ULONG idx = 0; idx < cMovedObjectIDRanges; idx += maxCount)
-	{
-		EventWriteObjectsMovedEvent(min(cMovedObjectIDRanges - idx, maxCount),
-			(const void**)&oldObjectIDRangeStart[idx], (const void**)&newObjectIDRangeStart[idx], (const unsigned int*)&cObjectIDRangeLength[idx]);
-	}*/
 	return S_OK;
 }
 
 STDMETHODIMP CallProfiler::SurvivingReferences(ULONG cSurvivingObjectIDRanges, ObjectID objectIDRangeStart[], ULONG cObjectIDRangeLength[])
 {
-	/*LOG_TRACE(L"Surviving references\n");
-	const int maxCount = MaxEventPayload / (1 * sizeof(int) + 1 * sizeof(void*));
-	for (ULONG idx = 0; idx < cSurvivingObjectIDRanges; idx += maxCount)
-	{
-		EventWriteObjectsSurvivedEvent(min(cSurvivingObjectIDRanges - idx, maxCount),
-			(const void**)&objectIDRangeStart[idx], (const unsigned int*)&cObjectIDRangeLength[idx]);
-	}*/
 	return S_OK;
 }
 
@@ -296,7 +319,48 @@ void CallProfiler::Tailcall(FunctionID functionID)
 	// TODO: Tail calls
 }
 
-void CallProfiler::Enter(FunctionID functionID)
+void CallProfiler::Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *retvalRange)
+{
+	if (g_profiler != NULL)
+	{
+		g_profiler->EnterHandler(functionID, clientData, frameInfo, retvalRange);
+	}
+}
+
+
+void CallProfiler::EnterHandler(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *argInfo)
+{
+	CFunctionInfo* functionInfo = NULL;
+	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionID);
+	if (iter != m_functionMap.end())
+	{
+		// get it from the map and update it
+		functionInfo = (iter->second);
+		if (argInfo != NULL)
+		{
+			printf("EnterMethod(Args): %I64u %s %lu\n", GetTickCount64(), functionInfo->GetName(), argInfo->numRanges);
+			for (ULONG i = 0; i < argInfo->numRanges; i++)
+			{
+
+			}
+			//printf("ArgRanges: %lu",);
+		}
+		else
+			printf("EnterMethod(Nargs): %I64u %s\n", GetTickCount64(), functionInfo->GetName());
+		
+	}
+	else
+	{
+		//// log an error (this shouldn't happen because we're caching the functions
+		//// in the function mapping callback
+		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
+	}
+
+}
+
+
+
+void CallProfiler::EnterHandler(FunctionID functionID)
 {
 	CFunctionInfo* functionInfo = NULL;
 	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionID);
@@ -377,8 +441,8 @@ void CallProfiler::Enter(FunctionID functionID)
 
 EXTERN_C void __stdcall EnterMethod(FunctionID functionID)
 {
-	if (g_profiler != NULL)
-		g_profiler->Enter(functionID);
+	/*if (g_profiler != NULL)
+		g_profiler->Enter(functionID);*/
 	
 }
 
@@ -477,42 +541,19 @@ HRESULT CallProfiler::Initialize(IUnknown *pICorProfilerInfoUnk)
 	// Even if we did not ask for them, turn on the profiler flags that can ONLY be done at startup. 
 	DWORD oldFlags = 0;
 	m_info->SetEventMask(COR_PRF_MONITOR_ENTERLEAVE);
-	m_info->SetEnterLeaveFunctionHooks(EnterMethodNaked, LeaveMethodNaked, TailcallMethodNaked);
+	
+	// TODO: Enabling function args may be useful, but will likely result in slow behavior
+	// TODO: Also need to figure out how to turn argument range info struct into actual arguments
+	// TODO: Need to lookup the functions metadata to get expected types, then translate address ranges to args
+	//COR_PRF_ENABLE_FUNCTION_ARGS);
+	//m_info->SetEnterLeaveFunctionHooks(EnterMethodNaked, LeaveMethodNaked, TailcallMethodNaked);
+	m_info->SetEnterLeaveFunctionHooks2(EnterNaked2, LeaveNaked2, TailcallNaked2);
 
 	m_info->SetFunctionIDMapper((FunctionIDMapper*)&FunctionMapper);
 
 	g_profiler = this;
 
-	//CALL_N_LOGONBADHR(m_info->GetEventMask(&oldFlags));
-	//CALL_N_LOGONBADHR(m_info->SetEventMask(oldFlags | COR_PRF_ENABLE_OBJECT_ALLOCATED));
-
-	// See if we asked for call sampling or not.  
-	//DWORD keywords = 0;
-	//DWORD keywordsSize = sizeof(keywords);
-	//int hrRegGetValue = RegGetValue(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\.NETFramework", L"PerfView_Keywords", RRF_RT_DWORD, NULL, &keywords, &keywordsSize);
-	//if (hrRegGetValue == ERROR_SUCCESS)
-	//{
-	//	if ((keywords & DisableInliningKeyword) != 0)
-	//	{
-	//		CALL_N_LOGONBADHR(m_info->GetEventMask(&oldFlags));
-	//		CALL_N_LOGONBADHR(m_info->SetEventMask(oldFlags | COR_PRF_DISABLE_INLINING));
-	//	}
-
-	//	if ((keywords & (CallKeyword | CallSampledKeyword)) != 0)
-	//	{
-	//		// assert(s_tracer == NULL);	// Don't need any information passed around so I don't need this.  
-	//		// s_tracer = this;
-
-	//		// Turn on the Call entry and leave hooks.  
-	//		CALL_N_LOGONBADHR(m_info->SetEnterLeaveFunctionHooks3(EnterMethodNaked, 0, TailcallMethodNaked));
-	//		CALL_N_LOGONBADHR(m_info->GetEventMask(&oldFlags));
-	//		CALL_N_LOGONBADHR(m_info->SetEventMask(oldFlags | COR_PRF_MONITOR_ENTERLEAVE));
-
-
-	//		if ((keywords & CallSampledKeyword) != 0)
-	//			CallSamplingRate = 997;		// TODO make it configurable.    We choose 997 because it is prime and thus likely to be uncorrelated with things.  
-	//	}
-	//}
+	
 
 	return S_FALSE;
 	
@@ -522,46 +563,5 @@ HRESULT CallProfiler::Initialize(IUnknown *pICorProfilerInfoUnk)
 exit:
 	printf("Initialize() returns %x\n" + hr);
 	return hr;
-	// In my Initialize() method I call InitializeForAttach with cbClientData == -1.   This is convenient 
-	// since most of the logic is the same.  
-	//m_profilerLoadedAtStartup = ((int)cbClientData < 0);
-
-	// Initialize the ETW Provider.  
-	//LOG_TRACE(L"Registering the ETW provider\n");
-	//CALL_N_LOGONBADHR(EventRegisterETWClrProfiler(ProfilerControlCallback, this));
-
-	////ofstream fout("E:\\afile.txt");
-	////fout << "Init??????" << endl;
-	////fout.close();
-
-	//HRESULT queryInterfaceResult = pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo8), reinterpret_cast<void **>(&this->corProfilerInfo));
-
-	//if (FAILED(queryInterfaceResult))
-	//{
-	//	return E_FAIL;
-	//}
-
-	//DWORD eventMask = COR_PRF_MONITOR_ENTERLEAVE | COR_PRF_ENABLE_FUNCTION_ARGS | COR_PRF_ENABLE_FUNCTION_RETVAL | COR_PRF_ENABLE_FRAME_INFO;
-
-	//auto hr = this->corProfilerInfo->SetEventMask(eventMask);
-	//if (hr != S_OK)
-	//{
-	//	printf("ERROR: Profiler SetEventMask failed (HRESULT: %d)", hr);
-	//}
-
-	//////hr = this->corProfilerInfo->SetEnterLeaveFunctionHooks3WithInfo(EnterNaked, LeaveNaked, TailcallNaked);
-
-	////hr = corProfilerInfo->SetEnterLeaveFunctionHooks2((FunctionEnter2 *)EnterNaked2,
-	////	(FunctionLeave2 *)LeaveNaked2,
-	////	(FunctionTailcall2 *)TailcallNaked2);
-
-	//if (hr != S_OK)
-	//{
-	//	printf("ERROR: Profiler SetEnterLeaveFunctionHooks3WithInfo failed (HRESULT: %d)", hr);
-	//}
-
-	//return S_OK;
-
-
-
+	
 }

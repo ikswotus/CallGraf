@@ -135,11 +135,15 @@ public:
 	STDMETHODIMP HandleCreated(GCHandleID handleId, ObjectID initialObjectId);
 	STDMETHODIMP HandleDestroyed(GCHandleID handleId);
 
-	// Function Mapping
-	void Enter(FunctionID functionID);
-	void Leave(FunctionID functionID);
-	void Tailcall(FunctionID functionID);
+	// Function Mapping - Static because they are callbacks
+	static void Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *retvalRange);
+	static void Leave(FunctionID functionID);
+	static void Tailcall(FunctionID functionID);
 	
+	void EnterHandler(FunctionID functionID);
+	void EnterHandler(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *retvalRange);
+
+
 	// Map function id => name
 	void AddFunction(FunctionID functionID);
 

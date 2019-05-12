@@ -6,10 +6,10 @@ e:\code\callgraf\callgraf\callprofiler\functioninfo.cpp(23): warning C4996: 'str
   c:\program files (x86)\windows kits\10\include\10.0.16299.0\ucrt\string.h(538): note: see declaration of 'strdup'
   COMInfrastructure.cpp
   CallProfiler.cpp
-e:\code\callgraf\callgraf\callprofiler\callprofiler.cpp(407): warning C4477: 'printf' : format string '%d' requires an argument of type 'int', but variadic argument 1 has type 'FunctionID'
-  e:\code\callgraf\callgraf\callprofiler\callprofiler.cpp(407): note: consider using '%lld' in the format string
-  e:\code\callgraf\callgraf\callprofiler\callprofiler.cpp(407): note: consider using '%Id' in the format string
-  e:\code\callgraf\callgraf\callprofiler\callprofiler.cpp(407): note: consider using '%I64d' in the format string
+e:\code\callgraf\callgraf\callprofiler\callprofiler.cpp(467): warning C4477: 'printf' : format string '%d' requires an argument of type 'int', but variadic argument 1 has type 'FunctionID'
+  e:\code\callgraf\callgraf\callprofiler\callprofiler.cpp(467): note: consider using '%lld' in the format string
+  e:\code\callgraf\callgraf\callprofiler\callprofiler.cpp(467): note: consider using '%Id' in the format string
+  e:\code\callgraf\callgraf\callprofiler\callprofiler.cpp(467): note: consider using '%I64d' in the format string
   Generating Code...
   dllmain.cpp
 CallProfiler.obj : warning LNK4075: ignoring '/EDITANDCONTINUE' due to '/INCREMENTAL:NO' specification
