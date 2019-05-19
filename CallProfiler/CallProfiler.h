@@ -8,12 +8,18 @@
 #include "FunctionInfo.h"
 
 #include <stdio.h>
+#include <time.h>
 #include <map>
+#include <thread>
+#include <vector>
+#include <mutex>
+
+#include <atomic>
 
 #define PROFILER_GUID "{D1EEF7F2-7F41-4C97-98B1-8E483D0CE3E6}"
 #define PROFILER_GUID_WCHAR L"{D1EEF7F2-7F41-4C97-98B1-8E483D0CE3E6}"
 
-#define COCLASS_DESCRIPTION "CallProfiler Test"
+#define COCLASS_DESCRIPTION "CallProfiler"
 
 
 class CallProfiler
@@ -42,11 +48,13 @@ public:
 	static UINT_PTR _stdcall FunctionMapper(FunctionID functionId, BOOL *pbHookFunction);
 
 
-	STDMETHODIMP_(ULONG) AddRef() {
+	STDMETHODIMP_(ULONG) AddRef()
+	{
 		printf("AddRef %ld\n", m_refCount);
 		return InterlockedIncrement(&m_refCount);
 	}
-	STDMETHODIMP_(ULONG) Release() {
+	STDMETHODIMP_(ULONG) Release() 
+	{
 		printf("Release - %ld\n", m_refCount);
 		auto ret = InterlockedDecrement(&m_refCount); if (ret <= 0) delete(this); return ret;
 	}
@@ -149,13 +157,34 @@ public:
 
 	struct ICorProfilerInfo3* m_info;
 
+private:
+	void WriteLogsToDisk();
+
 private :
 	
 	LONG                      m_refCount;
 	int m_callStackSize;
 
+
+	// Flag to stop
+	std::atomic<bool> _stop;
+
+	/** Start time of the application (Seconds since epoch) */
+	time_t m_startTime;
+
 	// Perform mapping of function IDs to names
 	std::map<FunctionID, CFunctionInfo*> m_functionMap;
+
+	// Writes buffered info to disk
+	std::thread _writeThread;
+
+	// Stores method timing info prior to flushing to disk
+	std::vector<std::string> _buffer;
+
+	//Sync access to _buffer
+	std::mutex _sync;
+
+
 };
 
 //extern CallProfiler *g_pCallbackObject;

@@ -8,6 +8,8 @@
 
 #include <atlconv.h>
 
+#include "Utils.hpp"
+
 #define MIDL_DEFINE_GUID(type,name,l,w1,w2,b1,b2,b3,b4,b5,b6,b7,b8) \
 	const type name = {l,w1,w2,{b1,b2,b3,b4,b5,b6,b7,b8}}
 
@@ -116,40 +118,78 @@ CallProfiler* g_profiler = NULL;
 //	m_callStackSize++;
 //}
 
-CallProfiler::CallProfiler() //: corProfilerInfo(NULL)
+CallProfiler::CallProfiler()
+	: _buffer(2000),
+	  _stop(false),
+	  _sync(),
+	  _writeThread(&CallProfiler::WriteLogsToDisk, this)
 {
 	printf("CallProfiler::ctor()\n");
 	m_info = NULL;
 	m_refCount = 0;
 	m_callStackSize = 0;
 	//m_functionMap();
+
 }
 
 CallProfiler::~CallProfiler()
 {
 	printf("CallProfiler::dtor\n");
+
+	_stop = true;
+	
+	_writeThread.join();
+
+	//TODO: Force a flush of current function timing to disk.
+	// Not sure if this will work...
+
 	if (m_info != NULL)
 		m_info->Release();
+
 	if (g_profiler != NULL)
 	{
-
+		g_profiler->Release();
+		g_profiler = NULL;
 	}
-	/*if (this->corProfilerInfo != nullptr)
-	{
-		this->corProfilerInfo->Release();
-		this->corProfilerInfo = nullptr;
-	}
-	g_pCallbackObject = NULL;*/
 }
 
-HRESULT STDMETHODCALLTYPE CallProfiler::InitializeForAttach(
-	/* [in] */ IUnknown *pICorProfilerInfoUnk,
-	/* [in] */ void *pvClientData,
-	/* [in] */ UINT cbClientData)
+void CallProfiler::WriteLogsToDisk()
 {
-	HRESULT             hr = S_OK;
-	printf("cp::initializeforattach\n");
-	return hr;
+	printf("WriteLogs starting %s \n", _stop ? "true" : "false");
+	// Wait for termination
+	while (!_stop)
+	{
+		//TODO: determine good size for this 
+		for (int i = 0; i < 30 && !_stop; i++)
+			Sleep(500);
+
+		if (_stop)
+			break;
+
+		printf("Writing logs");
+		// Lock while swapping buffer, then write to disk
+		_sync.lock();
+		std::vector<std::string> temp(2000);
+		temp.swap(_buffer);
+		_sync.unlock();
+
+		// TODO: Get output file location?
+		// Env variable?
+		// Config File?
+		const std::string oname("E:\\Code\\TEST_" + generate_hex(20) + ".txt");
+		std::ofstream outFile(oname);
+		for (std::vector<std::string>::const_iterator it = temp.cbegin(); it != temp.cend(); it++)
+		{
+			outFile << it->c_str();
+		}
+		outFile.close();
+	}
+	printf("WriteLogs exiting \n");
+}
+
+HRESULT STDMETHODCALLTYPE CallProfiler::InitializeForAttach(IUnknown *pICorProfilerInfoUnk, void *pvClientData, UINT cbClientData)
+{
+	return S_OK;
 }
 
 HRESULT CallProfiler::QueryInterface(
@@ -178,7 +218,6 @@ HRESULT CallProfiler::QueryInterface(
 		printf("--IID_ICorProfilerCallback3\n");
 		*ppInterface = static_cast<ICorProfilerCallback3*>(this);
 	}
-	// TODO FIX NOW add support or ICorProfilerCallback4 (for large objects)
 	else
 	{
 		printf("--IID_NOTIMPL\n");
@@ -220,16 +259,13 @@ STDMETHODIMP CallProfiler::ObjectReferences(ObjectID objectId, ClassID classId, 
 	return S_OK;
 }
 
-//==============================================================================
 STDMETHODIMP CallProfiler::HandleCreated(GCHandleID handleId, ObjectID initialObjectId)
 {
 	return S_OK;
 }
 
-//==============================================================================
 STDMETHODIMP CallProfiler::HandleDestroyed(GCHandleID handleId)
 {
-
 	return S_OK;
 }
 
@@ -293,7 +329,6 @@ EXTERN_C void __stdcall TailcallMethodNaked(FunctionID functionID);
 //==============================================================================
 STDMETHODIMP CallProfiler::GarbageCollectionFinished(void)
 {
-	
 	return S_OK;
 }
 
@@ -311,7 +346,7 @@ STDMETHODIMP CallProfiler::ObjectAllocated(ObjectID objectId, ClassID classId)
 
 void CallProfiler::Leave(FunctionID functionID)
 {
-	// TODO: Handle leaving
+	// TODO: Handle leaving (shadow stax)
 }
 
 void CallProfiler::Tailcall(FunctionID functionID)
@@ -338,15 +373,15 @@ void CallProfiler::EnterHandler(FunctionID functionID, UINT_PTR clientData, COR_
 		functionInfo = (iter->second);
 		if (argInfo != NULL)
 		{
-			printf("EnterMethod(Args): %I64u %s %lu\n", GetTickCount64(), functionInfo->GetName(), argInfo->numRanges);
-			for (ULONG i = 0; i < argInfo->numRanges; i++)
+			//printf("EnterMethod(Args): %I64u %s %lu\n", GetTickCount64(), functionInfo->GetName(), argInfo->numRanges);
+			/*for (ULONG i = 0; i < argInfo->numRanges; i++)
 			{
 
-			}
+			}*/
 			//printf("ArgRanges: %lu",);
 		}
-		else
-			printf("EnterMethod(Nargs): %I64u %s\n", GetTickCount64(), functionInfo->GetName());
+		//else
+			//printf("EnterMethod(Nargs): %I64u %s\n", GetTickCount64(), functionInfo->GetName());
 		
 	}
 	else
@@ -368,88 +403,24 @@ void CallProfiler::EnterHandler(FunctionID functionID)
 	{
 		// get it from the map and update it
 		functionInfo = (iter->second);
-		printf("EnterMethod: %I64u %s\n", GetTickCount64(), functionInfo->GetName());
-		// increment the call count
-		//functionInfo->IncrementCallCount();
-		// create the padding based on the call stack size
-		//int padCharCount = m_callStackSize * 2;
-		//if (padCharCount > 0)
-		//{
-		//	char* padding = new char[(padCharCount)+1];
-		//	memset(padding, 0, padCharCount + 1);
-		//	memset(padding, ' ', padCharCount);
-		//	// log the function call
-		//	printf("%I64u %s%s, id=%d, call count = %d\r\n", GetTickCount64(), padding, functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
-		//	delete padding;
-		//}
-		//else
-		//{
-		//	// log the function call
-		//	printf("%I64u %s, id=%d, call count = %d\r\n", GetTickCount64(), functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
-		//}
+		//printf("EnterMethod: %I64u %s\n", GetTickCount64(), functionInfo->GetName());
+		
 	}
 	else
 	{
 		//// log an error (this shouldn't happen because we're caching the functions
 		//// in the function mapping callback
-		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
+		//printf("Error finding function ID %d in the map.\r\n", (int)functionID);
 	}
-	// increment the call stack size (we must do this even if we don't find the 
-	// function in the map
-	//m_callStackSize++;
-
-	// TODO: See if the map already contains functionID, if not - lookup and add
-	// TODO: Record (stack) 
-	// TODO: Timing info (in,out), need utc long of timer start
-	// TOOD: How to pair up in, out? Look at callstack mapping (CLRProfiler)
-	// TODO: Arguments (And hooks for checking names)
-
-	//if (g_profiler != NULL)
-	//{
-
-	//	IMetaDataImport* pIMetaDataImport = 0;
-	//	HRESULT hr = S_OK;
-	//	mdToken funcToken = 0;
-	//	WCHAR szFunction[MAX_CLASS_NAME];
-	//	WCHAR szClass[MAX_CLASS_NAME];
-
-	//	// get the token for the function which we will use to get its name
-	//	hr = g_profiler->m_info->GetTokenAndMetaDataFromFunction(functionID, IID_IMetaDataImport, (LPUNKNOWN *)&pIMetaDataImport, &funcToken);
-	//	if (SUCCEEDED(hr))
-	//	{
-	//		mdTypeDef classTypeDef;
-	//		ULONG cchFunction;
-	//		ULONG cchClass;
-
-	//		// retrieve the function properties based on the token
-	//		hr = pIMetaDataImport->GetMethodProps(funcToken, &classTypeDef, szFunction, MAX_CLASS_NAME, &cchFunction, 0, 0, 0, 0, 0);
-	//		if (SUCCEEDED(hr))
-	//		{
-	//			// get the function name
-	//			hr = pIMetaDataImport->GetTypeDefProps(classTypeDef, szClass, MAX_CLASS_NAME, &cchClass, 0, 0);
-	//			if (SUCCEEDED(hr))
-	//			{
-	//				// create the fully qualified name
-	//				printf("EnterMethod: %I64u %S.%S\n", GetTickCount64(), szClass, szFunction);
-	//			}
-	//		}
-	//		// release our reference to the metadata
-	//		pIMetaDataImport->Release();
-	//	}
-	//}
 }
 
 EXTERN_C void __stdcall EnterMethod(FunctionID functionID)
 {
-	/*if (g_profiler != NULL)
-		g_profiler->Enter(functionID);*/
-	
 }
 
 EXTERN_C void __stdcall TailcallMethod(FunctionID functionID)
 {
 	printf("TailcallMethod\n");
-//	EnterMethod(functionID);
 }
 
 UINT_PTR CallProfiler::FunctionMapper(FunctionID functionID, BOOL *pbHookFunction)
@@ -468,6 +439,11 @@ void CallProfiler::AddFunction(FunctionID functionid)
 
 	if (iter == m_functionMap.end())
 	{
+		char buffer[100];
+		snprintf(buffer, 100, "Looking up functionid: %d", functionid);
+		_sync.lock();
+		_buffer.push_back(std::string(buffer));
+		_sync.unlock();
 		printf("Looking up functionid: %d", functionid);
 
 		IMetaDataImport* pIMetaDataImport = 0;
@@ -515,6 +491,8 @@ HRESULT CallProfiler::Initialize(IUnknown *pICorProfilerInfoUnk)
 	//return S_OK;
 
 	printf("CallProfiler::Initialize\n");
+
+	m_startTime = time(NULL);
 
 	HRESULT             hr = S_OK;
 

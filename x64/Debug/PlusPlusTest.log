@@ -1,0 +1,4 @@
+﻿  PlusPlusTest.cpp
+e:\code\callgraf\callgraf\plusplustest\plusplustest.cpp(30): warning C4018: '<': signed/unsigned mismatch
+  PlusPlusTest.vcxproj -> E:\Code\CallGraf\CallGraf\x64\Debug\PlusPlusTest.exe
+  PlusPlusTest.vcxproj -> E:\Code\CallGraf\CallGraf\x64\Debug\PlusPlusTest.pdb (Partial PDB)
