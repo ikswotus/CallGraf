@@ -38,14 +38,13 @@ namespace ConsoleTest
                 profiledProcess.OutputDataReceived += ProfiledProcess_OutputDataReceived1;
                 profiledProcess.Start();
                 profiledProcess.BeginOutputReadLine();
-                
+
                 
                 while (!profiledProcess.HasExited)
                 {
                     System.Threading.Thread.Sleep(1000);
                 }
                 Console.WriteLine("ProfiledProcess exited");
-                Console.ReadKey();
 
             }
             catch (Exception exc)

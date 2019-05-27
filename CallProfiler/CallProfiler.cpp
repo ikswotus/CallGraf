@@ -60,69 +60,11 @@ EXTERN_C void TailcallNaked3(FunctionIDOrClientID functionIDOrClientID);
 using namespace std;
 
 CallProfiler* g_profiler = NULL;
-//
-//// our real handler for FunctionLeave notification
-//void CallProfiler::Leave(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_RANGE *argumentRange)
-//{
-//	// decrement the call stack size
-//	if (m_callStackSize > 0)
-//		m_callStackSize--;
-//}
-//
-//// our real handler for the FunctionTailcall notification
-//void CallProfiler::Tailcall(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo)
-//{
-//	// decrement the call stack size
-//	if (m_callStackSize > 0)
-//		m_callStackSize--;
-//}
-//
-//
-//
-//void CallProfiler::Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *argumentInfo)
-//{
-//	// see if this function is in the map.  It should be since we are using the funciton mapper
-//	CFunctionInfo* functionInfo = NULL;
-//	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionID);
-//	if (iter != m_functionMap.end())
-//	{
-//		// get it from the map and update it
-//		functionInfo = (iter->second);
-//		// increment the call count
-//		functionInfo->IncrementCallCount();
-//		// create the padding based on the call stack size
-//		int padCharCount = m_callStackSize * 2;
-//		if (padCharCount > 0)
-//		{
-//			char* padding = new char[(padCharCount)+1];
-//			memset(padding, 0, padCharCount + 1);
-//			memset(padding, ' ', padCharCount);
-//			// log the function call
-//			printf("%I64u %s%s, id=%d, call count = %d\r\n", GetTickCount64(), padding, functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
-//			delete padding;
-//		}
-//		else
-//		{
-//			// log the function call
-//			printf("%I64u %s, id=%d, call count = %d\r\n", GetTickCount64(), functionInfo->GetName(), functionInfo->GetFunctionID(), functionInfo->GetCallCount());
-//		}
-//	}
-//	else
-//	{
-//		//// log an error (this shouldn't happen because we're caching the functions
-//		//// in the function mapping callback
-//		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
-//	}
-//	// increment the call stack size (we must do this even if we don't find the 
-//	// function in the map
-//	m_callStackSize++;
-//}
-
 CallProfiler::CallProfiler()
-	: _buffer(2000),
-	  _stop(false),
-	  _sync(),
-	  _writeThread(&CallProfiler::WriteLogsToDisk, this)
+	: m_buffer(2000),
+	  m_stop(false),
+	  m_sync(),
+	  m_writeThread(&CallProfiler::WriteLogsToDisk, this)
 {
 	printf("CallProfiler::ctor()\n");
 	m_info = NULL;
@@ -134,56 +76,55 @@ CallProfiler::CallProfiler()
 
 CallProfiler::~CallProfiler()
 {
-	printf("CallProfiler::dtor\n");
+	// TODO: Currently doing nothing in here
+	// All logic was moved into Shutdown() because it was throwing an abort() exception
 
-	_stop = true;
+}
+
+void CallProfiler::Flush()
+{
+	printf("Writing logs");
+	// Lock while swapping buffer, then write to disk
+	m_sync.lock();
 	
-	_writeThread.join();
+	std::vector<std::string> temp(2000);
+	temp.swap(m_buffer);
 
-	//TODO: Force a flush of current function timing to disk.
-	// Not sure if this will work...
+	m_sync.unlock();
 
-	if (m_info != NULL)
-		m_info->Release();
+	if (temp.size() == 0)
+		return;
 
-	if (g_profiler != NULL)
+	// TODO: Get output file location?
+	// Env variable?
+	// Config File?
+	const std::string oname("E:\\Code\\TEST_" + generate_hex(20) + ".txt");
+	std::ofstream outFile(oname);
+	for (std::vector<std::string>::const_iterator it = temp.cbegin(); it != temp.cend(); it++)
 	{
-		g_profiler->Release();
-		g_profiler = NULL;
+		outFile << it->c_str();
 	}
+	outFile.close();
 }
 
 void CallProfiler::WriteLogsToDisk()
 {
-	printf("WriteLogs starting %s \n", _stop ? "true" : "false");
+	printf("WriteLogs starting %s \n", m_stop ? "true" : "false");
 	// Wait for termination
-	while (!_stop)
+	while (!m_stop)
 	{
 		//TODO: determine good size for this 
-		for (int i = 0; i < 30 && !_stop; i++)
+		for (int i = 0; i < 30 && !m_stop; i++)
 			Sleep(500);
 
-		if (_stop)
+		if (m_stop)
 			break;
-
-		printf("Writing logs");
-		// Lock while swapping buffer, then write to disk
-		_sync.lock();
-		std::vector<std::string> temp(2000);
-		temp.swap(_buffer);
-		_sync.unlock();
-
-		// TODO: Get output file location?
-		// Env variable?
-		// Config File?
-		const std::string oname("E:\\Code\\TEST_" + generate_hex(20) + ".txt");
-		std::ofstream outFile(oname);
-		for (std::vector<std::string>::const_iterator it = temp.cbegin(); it != temp.cend(); it++)
-		{
-			outFile << it->c_str();
-		}
-		outFile.close();
+		Flush();
 	}
+	
+	// Write final output
+	Flush();
+	
 	printf("WriteLogs exiting \n");
 }
 
@@ -231,10 +172,28 @@ HRESULT CallProfiler::QueryInterface(
 
 HRESULT CallProfiler::Shutdown()
 {
-	printf("Shutdown\n");
+	printf("CallProfiler::Shutdown\n");
+
+	m_stop = true;
+
+	m_writeThread.join();
+
+	//TODO: Force a flush of current function timing to disk.
+	// Not sure if this will work...
+
 	if (m_info != NULL)
 		m_info->Release();
-	m_info = NULL;
+
+	if (g_profiler != NULL)
+	{
+		g_profiler->Release();
+		g_profiler = NULL;
+	}
+
+	// Test to see if we destruct when service exits
+	std::ofstream outFile("E:\\Code\\shutdown.bin");
+	outFile << "Destructor!\n";
+	outFile.close();
 	return S_OK;
 }
 
@@ -346,12 +305,12 @@ STDMETHODIMP CallProfiler::ObjectAllocated(ObjectID objectId, ClassID classId)
 
 void CallProfiler::Leave(FunctionID functionID)
 {
-	// TODO: Handle leaving (shadow stax)
+	g_profiler->LeaveHandler(functionID);
 }
 
 void CallProfiler::Tailcall(FunctionID functionID)
 {
-	// TODO: Tail calls
+	g_profiler->TailHandler(functionID);
 }
 
 void CallProfiler::Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *retvalRange)
@@ -359,6 +318,60 @@ void CallProfiler::Enter(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRA
 	if (g_profiler != NULL)
 	{
 		g_profiler->EnterHandler(functionID, clientData, frameInfo, retvalRange);
+	}
+}
+
+void CallProfiler::TailHandler(FunctionID functionID)
+{
+	CFunctionInfo* functionInfo = NULL;
+	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionID);
+	if (iter != m_functionMap.end())
+	{
+		// get it from the map and update it
+		functionInfo = (iter->second);
+
+		ThreadID tid = GetThreadID();
+
+		char buffer[250];
+		snprintf(buffer, 250, "TAIL %I64u %zu %s\n", GetTickCount64(), tid, functionInfo->GetName());
+		m_sync.lock();
+		m_buffer.push_back(std::string(buffer));
+		m_sync.unlock();
+		//printf("Tail %I64u %zu %s\n", GetTickCount64(), tid, functionInfo->GetName());
+
+	}
+	else
+	{
+		//// log an error (this shouldn't happen because we're caching the functions
+		//// in the function mapping callback
+		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
+	}
+}
+
+void CallProfiler::LeaveHandler(FunctionID functionID)
+{
+	CFunctionInfo* functionInfo = NULL;
+	std::map<FunctionID, CFunctionInfo*>::iterator iter = m_functionMap.find(functionID);
+	if (iter != m_functionMap.end())
+	{
+		// get it from the map and update it
+		functionInfo = (iter->second);
+
+		ThreadID tid = GetThreadID();
+
+		char buffer[250];
+		snprintf(buffer, 250, "LEAVE %I64u %zu %s\n", GetTickCount64(), tid, functionInfo->GetName());
+		m_sync.lock();
+		m_buffer.push_back(std::string(buffer));
+		m_sync.unlock();
+		//printf("Leave: %I64u %zu %s\n", GetTickCount64(), tid, functionInfo->GetName());
+
+	}
+	else
+	{
+		//// log an error (this shouldn't happen because we're caching the functions
+		//// in the function mapping callback
+		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
 	}
 }
 
@@ -371,17 +384,16 @@ void CallProfiler::EnterHandler(FunctionID functionID, UINT_PTR clientData, COR_
 	{
 		// get it from the map and update it
 		functionInfo = (iter->second);
-		if (argInfo != NULL)
-		{
-			//printf("EnterMethod(Args): %I64u %s %lu\n", GetTickCount64(), functionInfo->GetName(), argInfo->numRanges);
-			/*for (ULONG i = 0; i < argInfo->numRanges; i++)
-			{
+		
+		ThreadID tid = GetThreadID();
 
-			}*/
-			//printf("ArgRanges: %lu",);
-		}
-		//else
-			//printf("EnterMethod(Nargs): %I64u %s\n", GetTickCount64(), functionInfo->GetName());
+		char buffer[250];
+		snprintf(buffer, 250, "ENTER %I64u %zu %s\n", GetTickCount64(), tid, functionInfo->GetName());
+		m_sync.lock();
+		m_buffer.push_back(std::string(buffer));
+		m_sync.unlock();
+			
+		//printf("EnterMethod(Nargs): %I64u %zu %s\n", GetTickCount64(), tid, functionInfo->GetName());
 		
 	}
 	else
@@ -391,6 +403,15 @@ void CallProfiler::EnterHandler(FunctionID functionID, UINT_PTR clientData, COR_
 		printf("Error finding function ID %d in the map.\r\n", (int)functionID);
 	}
 
+}
+
+
+__forceinline ThreadID CallProfiler::GetThreadID()
+{
+	
+	ThreadID tid = 0;
+	g_profiler->m_info->GetCurrentThreadID(&tid);
+	return tid;
 }
 
 
@@ -439,12 +460,8 @@ void CallProfiler::AddFunction(FunctionID functionid)
 
 	if (iter == m_functionMap.end())
 	{
-		char buffer[100];
-		snprintf(buffer, 100, "Looking up functionid: %d", functionid);
-		_sync.lock();
-		_buffer.push_back(std::string(buffer));
-		_sync.unlock();
-		printf("Looking up functionid: %d", functionid);
+		
+		//printf("Looking up functionid: %d\n", functionid);
 
 		IMetaDataImport* pIMetaDataImport = 0;
 		HRESULT hr = S_OK;
@@ -509,6 +526,8 @@ HRESULT CallProfiler::Initialize(IUnknown *pICorProfilerInfoUnk)
 	printf("\n");
 
 	bool wantToProfile = true;
+
+	// TODO: Compare processname to determine if we want to profile
 
 	if(!wantToProfile)
 		return S_FALSE;

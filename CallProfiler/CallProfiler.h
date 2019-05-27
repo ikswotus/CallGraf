@@ -31,6 +31,8 @@ public:
 	CallProfiler();
 	~CallProfiler();
 
+	ThreadID GetThreadID();
+
 	STDMETHODIMP Initialize(IUnknown* pICorProfilerInfoUnk);
 	STDMETHODIMP Shutdown();
 
@@ -50,12 +52,12 @@ public:
 
 	STDMETHODIMP_(ULONG) AddRef()
 	{
-		printf("AddRef %ld\n", m_refCount);
+		//printf("AddRef %ld\n", m_refCount);
 		return InterlockedIncrement(&m_refCount);
 	}
 	STDMETHODIMP_(ULONG) Release() 
 	{
-		printf("Release - %ld\n", m_refCount);
+		//printf("Release - %ld\n", m_refCount);
 		auto ret = InterlockedDecrement(&m_refCount); if (ret <= 0) delete(this); return ret;
 	}
 	STDMETHODIMP QueryInterface(REFIID riid, void **ppInterface);
@@ -151,6 +153,9 @@ public:
 	void EnterHandler(FunctionID functionID);
 	void EnterHandler(FunctionID functionID, UINT_PTR clientData, COR_PRF_FRAME_INFO frameInfo, COR_PRF_FUNCTION_ARGUMENT_INFO *retvalRange);
 
+	void LeaveHandler(FunctionID functionID);
+	void TailHandler(FunctionID functionID);
+
 
 	// Map function id => name
 	void AddFunction(FunctionID functionID);
@@ -158,16 +163,18 @@ public:
 	struct ICorProfilerInfo3* m_info;
 
 private:
+	// Handle flushing queued function timing events to disk
 	void WriteLogsToDisk();
+	void Flush();
 
 private :
 	
-	LONG                      m_refCount;
+	LONG m_refCount;
 	int m_callStackSize;
 
 
-	// Flag to stop
-	std::atomic<bool> _stop;
+	// Flag to stop -- needs to be declared above writeThread
+	std::atomic<bool> m_stop;
 
 	/** Start time of the application (Seconds since epoch) */
 	time_t m_startTime;
@@ -176,17 +183,16 @@ private :
 	std::map<FunctionID, CFunctionInfo*> m_functionMap;
 
 	// Writes buffered info to disk
-	std::thread _writeThread;
+	std::thread m_writeThread;
 
 	// Stores method timing info prior to flushing to disk
-	std::vector<std::string> _buffer;
+	std::vector<std::string> m_buffer;
 
 	//Sync access to _buffer
-	std::mutex _sync;
+	std::mutex m_sync;
 
 
 };
 
-//extern CallProfiler *g_pCallbackObject;
 
 #endif //__CALL_PROFILER_H__
